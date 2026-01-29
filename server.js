@@ -51,6 +51,8 @@ const corsOptions = {
     const allowedOrigins = [
       "http://localhost:3000",
       "http://localhost:3001",
+      
+      "https://pink-dream-local-frontend.vercel.app",
       "https://faysalpk26-pinkdreams-frontend.vercel.app",
       "https://pinkdreams-backend.onrender.com",
 
