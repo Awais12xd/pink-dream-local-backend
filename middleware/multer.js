@@ -2,66 +2,62 @@ const multer = require("multer");
 const path = require("path");
 const fs = require("fs");
 
+const UPLOAD_ROOT = path.join(__dirname, "../upload");
+
+function fileFilter(req, file, cb) {
+  const allowedTypes = [
+    "image/jpeg",
+    "image/jpg",
+    "image/png",
+    "image/webp",
+    "image/gif",
+  ];
+  if (allowedTypes.includes(file.mimetype)) {
+    cb(null, true);
+  } else {
+    cb(new Error("Invalid image type"));
+  }
+}
+
+
 //Product Image Upload
 
-const uploadDir = path.join(__dirname, "../upload/images");
-if (!fs.existsSync(uploadDir)) {
-  fs.mkdirSync(uploadDir, { recursive: true });
-  console.log("Created upload directory:", uploadDir);
+const productUploadDir = path.join(UPLOAD_ROOT, "images");
+if (!fs.existsSync(productUploadDir)) {
+  fs.mkdirSync(productUploadDir, { recursive: true });
 }
 
 const storage = multer.diskStorage({
-  destination: "../upload/images",
+  destination: productUploadDir,
   filename: (req, file, cb) => {
-    return cb(
-      null,
-      `${file.fieldname}_${Date.now()}${path.extname(file.originalname)}`,
-    );
+    cb(null, `${file.fieldname}_${Date.now()}${path.extname(file.originalname)}`);
   },
 });
 
-const upload = multer({ storage: storage });
+const upload = multer({ storage });
+
 
 
 // Category Image Upload
 
-const categoryUploadDir = "../upload/categories";
+const categoryUploadDir = path.join(UPLOAD_ROOT, "categories");
 if (!fs.existsSync(categoryUploadDir)) {
   fs.mkdirSync(categoryUploadDir, { recursive: true });
-  console.log("✅ Category upload directory created");
 }
 
-// Configure multer for category images
 const categoryStorage = multer.diskStorage({
-  destination: "../upload/categories",
+  destination: categoryUploadDir,
   filename: (req, file, cb) => {
-    const uniqueName = `category_${Date.now()}${path.extname(file.originalname)}`;
-    return cb(null, uniqueName);
+    cb(null, `category_${Date.now()}${path.extname(file.originalname)}`);
   },
 });
 
 const categoryImageUpload = multer({
   storage: categoryStorage,
-  limits: { fileSize: 5 * 1024 * 1024 }, // 5MB limit
-  fileFilter: (req, file, cb) => {
-    const allowedTypes = [
-      "image/jpeg",
-      "image/jpg",
-      "image/png",
-      "image/webp",
-      "image/gif",
-    ];
-    if (allowedTypes.includes(file.mimetype)) {
-      cb(null, true);
-    } else {
-      cb(
-        new Error(
-          "Invalid file type. Only JPEG, PNG, WEBP and GIF images are allowed.",
-        ),
-      );
-    }
-  },
+  limits: { fileSize: 5 * 1024 * 1024 },
+  fileFilter,
 });
+
 
 
 
@@ -69,45 +65,24 @@ const categoryImageUpload = multer({
 // =============================================
 // Blog CATEGORY IMAGE UPLOAD
 // =============================================
-
-// Create category upload directory
-const blogCategoryUploadDir = "../upload/blog-categories";
+const blogCategoryUploadDir = path.join(UPLOAD_ROOT, "blog-categories");
 if (!fs.existsSync(blogCategoryUploadDir)) {
   fs.mkdirSync(blogCategoryUploadDir, { recursive: true });
-  console.log("✅ Category upload directory created");
 }
 
-// Configure multer for category images
 const blogCategoryStorage = multer.diskStorage({
-  destination: "../upload/blog-categories",
+  destination: blogCategoryUploadDir,
   filename: (req, file, cb) => {
-    const uniqueName = `category_${Date.now()}${path.extname(file.originalname)}`;
-    return cb(null, uniqueName);
+    cb(null, `category_${Date.now()}${path.extname(file.originalname)}`);
   },
 });
 
 const blogCategoryImageUpload = multer({
   storage: blogCategoryStorage,
-  limits: { fileSize: 5 * 1024 * 1024 }, // 5MB limit
-  fileFilter: (req, file, cb) => {
-    const allowedTypes = [
-      "image/jpeg",
-      "image/jpg",
-      "image/png",
-      "image/webp",
-      "image/gif",
-    ];
-    if (allowedTypes.includes(file.mimetype)) {
-      cb(null, true);
-    } else {
-      cb(
-        new Error(
-          "Invalid file type. Only JPEG, PNG, WEBP and GIF images are allowed.",
-        ),
-      );
-    }
-  },
+  limits: { fileSize: 5 * 1024 * 1024 },
+  fileFilter,
 });
+
 
 
 
@@ -115,44 +90,24 @@ const blogCategoryImageUpload = multer({
 // Blog  IMAGE UPLOAD
 // =============================================
 
-// Create blog upload directory
-const blogUploadDir = "../upload/blog";
+const blogUploadDir = path.join(UPLOAD_ROOT, "blog");
 if (!fs.existsSync(blogUploadDir)) {
   fs.mkdirSync(blogUploadDir, { recursive: true });
-  console.log("✅ Blog upload directory created");
 }
 
-// Configure multer for category images
 const blogStorage = multer.diskStorage({
-  destination: "../upload/blog",
+  destination: blogUploadDir,
   filename: (req, file, cb) => {
-    const uniqueName = `blog_${Date.now()}${path.extname(file.originalname)}`;
-    return cb(null, uniqueName);
+    cb(null, `blog_${Date.now()}${path.extname(file.originalname)}`);
   },
 });
 
 const blogImageUpload = multer({
   storage: blogStorage,
-  limits: { fileSize: 5 * 1024 * 1024 }, // 5MB limit
-  fileFilter: (req, file, cb) => {
-    const allowedTypes = [
-      "image/jpeg",
-      "image/jpg",
-      "image/png",
-      "image/webp",
-      "image/gif",
-    ];
-    if (allowedTypes.includes(file.mimetype)) {
-      cb(null, true);
-    } else {
-      cb(
-        new Error(
-          "Invalid file type. Only JPEG, PNG, WEBP and GIF images are allowed.",
-        ),
-      );
-    }
-  },
+  limits: { fileSize: 5 * 1024 * 1024 },
+  fileFilter,
 });
+
 
 
 
