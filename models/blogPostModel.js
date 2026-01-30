@@ -88,8 +88,12 @@ const BlogPostSchema = new mongoose.Schema(
 
     comments: [
       {
+        _id: {
+          type: mongoose.Schema.Types.ObjectId,
+          default: () => new mongoose.Types.ObjectId(),
+        },
         user: {
-          type : Object,
+          type: Object,
           required: true,
         },
         text: {
@@ -97,12 +101,38 @@ const BlogPostSchema = new mongoose.Schema(
           required: true,
           trim: true,
         },
+        replies: [
+          {
+            _id: {
+              type: mongoose.Schema.Types.ObjectId,
+              default: () => new mongoose.Types.ObjectId(),
+            },
+            user: {
+              type: Object,
+              required: true,
+            },
+            text: {
+              type: String,
+              required: true,
+              trim: true,
+            },
+            createdAt: {
+              type: Date,
+              default: Date.now,
+            },
+          },
+        ],
         createdAt: {
           type: Date,
           default: Date.now,
         },
       },
     ],
+
+    commentsEnabled: {
+      type: Boolean,
+      default: true,
+    },
 
     id: {
       type: mongoose.Schema.Types.ObjectId,
@@ -125,4 +155,3 @@ const BlogPostSchema = new mongoose.Schema(
 );
 
 module.exports = mongoose.model("BlogPost", BlogPostSchema);
-

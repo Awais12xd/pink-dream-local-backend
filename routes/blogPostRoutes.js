@@ -7,6 +7,7 @@ const {
   writeCommentOnBlog,
   updateBlog,
   toggleBlogLike,
+  replyToComment,
 } = require("../controllers/blogPostController");
 const { verifyAdminToken } = require("../middleware/authMiddleware");
 const router = express.Router();
@@ -26,6 +27,12 @@ router.get("/blog/:id", getBlogById);
 
 //Write a comment
 router.post("/blog/:id/comment", writeCommentOnBlog);
+
+router.post("/blogs/:blogId/comments/:commentId/reply", replyToComment);
+
+// POST /blogs/:blogId/comments/:commentId/reply
+
+
 
 // Update Blog - FIXED to handle both ID types
 router.put("/update-blog/:id", updateBlog);

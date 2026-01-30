@@ -105,6 +105,7 @@ const createBlog = async (req, res) => {
       metaTitle: metaTitle,
       metaDescription: req.body.metaDescription || "",
       metaKeywords: req.body.metaKeywords || "",
+      commentsEnabled: req.body.commentsEnabled || true,
       slug: slug,
     });
 
@@ -341,12 +342,10 @@ const getBlogById = async (req, res) => {
 };
 
 const writeCommentOnBlog = async (req, res) => {
-  console.log("req is hitting");
   try {
     const { id } = req.params;
     const { text, user } = req.body;
 
-    console.log(id, text);
 
     if (!text || text.trim() === "") {
       return res
@@ -361,7 +360,13 @@ const writeCommentOnBlog = async (req, res) => {
         .json({ success: false, message: "Blog not found" });
     }
 
-    console.log(user);
+     if (!blog.commentsEnabled) {
+      return res.status(403).json({
+        success: false,
+        message: "Comments are disabled for this blog",
+      });
+    }
+
 
     blog.comments.push({
       user,
@@ -442,6 +447,8 @@ const updateBlog = async (req, res) => {
       updateData.featured = req.body.featured;
     if (req.body.trending !== undefined)
       updateData.trending = req.body.trending;
+    if (req.body.commentsEnabled !== undefined)
+      updateData.commentsEnabled = req.body.commentsEnabled;
     if (req.body.image !== undefined) updateData.image = req.body.image;
 
     if (updateData.title) {
@@ -533,6 +540,68 @@ const toggleBlogLike = async (req, res) => {
   }
 };
 
+const replyToComment = async (req, res) => {
+  try {
+    const { blogId, commentId } = req.params;
+    const { text, user } = req.body;
+
+    if (!text || text.trim() === "") {
+      return res.status(400).json({
+        success: false,
+        message: "Reply text is empty",
+      });
+    }
+
+    const blog = await BlogPost.findById(blogId);
+
+    if (!blog) {
+      return res.status(404).json({
+        success: false,
+        message: "Blog not found",
+      });
+    }
+
+    if (!blog.commentsEnabled) {
+      return res.status(403).json({
+        success: false,
+        message: "Comments are disabled",
+      });
+    }
+
+    const comment = blog.comments.id(commentId);
+
+    if (!comment) {
+      return res.status(404).json({
+        success: false,
+        message: "Comment not found",
+      });
+    }
+
+    comment.replies.push({
+      user,
+      text,
+    });
+
+    await blog.save();
+
+    const reply = comment.replies.find(rep => rep.user.id === user.id )
+    console.log(reply)
+
+    res.json({
+      success: true,
+      message: "Reply added",
+      replyId : reply._id , 
+      repliesCount: comment.replies.length,
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: error.message,
+    });
+  }
+};
+
+
 module.exports = {
   createBlog,
   updateBlog,
@@ -541,4 +610,5 @@ module.exports = {
   deleteBlog,
   getAllBlogs,
   getBlogById,
+  replyToComment
 };
