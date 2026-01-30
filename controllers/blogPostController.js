@@ -1,7 +1,32 @@
 const mongoose = require("mongoose");
 const BlogPost = require("../models/blogPostModel");
 const BlogCategory = require("../models/blogCategoryModel");
-const sanitizeHtml = require('sanitize-html');
+const sanitizeHtml = require("sanitize-html");
+const {
+  getJSON,
+  setJSON,
+  client: redisClient,
+  delKey,
+} = require("../utils/redisClient");
+
+//redis util functions
+const invalidateBlogCaches = async (id) => {
+  await delKey(`blog:detail:${id}`);
+  // delete feeds (pattern)
+  for await (const key of redisClient.scanIterator({
+    MATCH: "blogs:list:*",
+    COUNT: 100,
+  })) {
+    await redisClient.del(key);
+  }
+};
+
+const invalidateAllListCaches = async () => {
+  const keys = await redisClient.sMembers("cache:keys");
+  if (!keys || keys.length === 0) return;
+  await redisClient.del(keys);
+  await redisClient.del("cache:keys");
+};
 
 // Helper function to validate product ID (supports both numeric and ObjectId)
 const validateBlogId = (id) => {
@@ -42,16 +67,27 @@ const createBlog = async (req, res) => {
       bio: req.body.bio,
     };
 
-     const safeHtml = sanitizeHtml(req.body.content, {
-    allowedTags: [
-      'p','h1','h2','h3','strong','em','a','ul','ol','li',
-      'blockquote','code','pre'
-    ],
-    allowedAttributes: {
-      a: ['href', 'target', 'rel']
-    },
-    allowedSchemes: ['http', 'https']
-  });
+    const safeHtml = sanitizeHtml(req.body.content, {
+      allowedTags: [
+        "p",
+        "h1",
+        "h2",
+        "h3",
+        "strong",
+        "em",
+        "a",
+        "ul",
+        "ol",
+        "li",
+        "blockquote",
+        "code",
+        "pre",
+      ],
+      allowedAttributes: {
+        a: ["href", "target", "rel"],
+      },
+      allowedSchemes: ["http", "https"],
+    });
 
     const blog = new BlogPost({
       title: req.body.title,
@@ -72,13 +108,12 @@ const createBlog = async (req, res) => {
       slug: slug,
     });
 
-   
-
-      
-
     console.log("Adding Blog:", blog.title);
     await blog.save();
     console.log("Blog saved successfully");
+
+    await delKey(`blog:detail:${blog._id}`);
+    await invalidateAllListCaches();
 
     res.json({
       success: true,
@@ -92,6 +127,18 @@ const createBlog = async (req, res) => {
       error: error.message,
     });
   }
+};
+
+const buildListCacheKey = (query) => {
+  // use stable ordering
+  const {
+    page = 1,
+    limit = 10,
+    search = "",
+    category = "all",
+    tag = "",
+  } = query;
+  return `blogs:list:page=${page}:limit=${limit}:search=${encodeURIComponent(search)}:cat=${category}:tag=${tag}`;
 };
 
 const getAllBlogs = async (req, res) => {
@@ -164,12 +211,40 @@ const getAllBlogs = async (req, res) => {
         // latest / Oldest
         sortObj.publishedAt = sortOrder;
     }
+
+    const cacheKey = buildListCacheKey(req.query);
+    const cached = await getJSON(cacheKey);
+    if (cached) {
+      return res.json({
+        success: true,
+        blogs: cached.blogs,
+        pagination: cached.pagination,
+        cached: true,
+      });
+    }
+
     const [blogs, totalBlogs] = await Promise.all([
       BlogPost.find(query).sort(sortObj).skip(skip).limit(limit).lean(),
       BlogPost.countDocuments(query),
     ]);
-
     const totalPages = Math.ceil(totalBlogs / limit);
+    await setJSON(
+      cacheKey,
+      {
+        blogs,
+        pagination: {
+          currentPage: page,
+          totalPages,
+          totalBlogs,
+          hasNextPage: page < totalPages,
+          hasPrevPage: page > 1,
+          limit,
+        },
+      },
+      120,
+    );
+
+    await redisClient.sAdd("cache:keys", cacheKey);
 
     res.status(200).json({
       success: true,
@@ -214,9 +289,9 @@ const deleteBlog = async (req, res) => {
       });
     }
 
-      
-
     console.log("Blog deleted:", deletedBlog.title);
+     await delKey(`blog:detail:${deletedBlog._id}`);
+    await invalidateAllListCaches();
     res.json({
       success: true,
       message: `Blog "${title || deletedBlog.title}" deleted successfully`,
@@ -233,99 +308,35 @@ const deleteBlog = async (req, res) => {
 };
 
 const getBlogById = async (req, res) => {
-  const validateBlogId = (id) => {
-    // Check if it's a valid MongoDB ObjectId
-    if (mongoose.Types.ObjectId.isValid(id)) {
-      return { isValid: true, type: "objectId", value: id };
-    }
-
-    // Check if it's a numeric ID
-    const numId = parseInt(id);
-    if (!isNaN(numId) && numId > 0) {
-      return { isValid: true, type: "numeric", value: numId };
-    }
-
-    return { isValid: false, type: null, value: null };
-  };
   try {
-    const blogIdParam = req.params.id;
-    console.log(`Received Blog ID: ${blogIdParam}`);
+    const id = req.params.id;
 
-    const validation = validateBlogId(blogIdParam);
-
-    if (!validation.isValid) {
-      return res.status(400).json({
-        success: false,
-        message:
-          "Invalid blog ID format. Must be a valid MongoDB ObjectId or numeric ID.",
-        provided: blogIdParam,
-      });
+    const cacheKey = `blog:detail:${id}`;
+    // 1) Try cache
+    const cached = await getJSON(cacheKey);
+    if (cached) {
+      return res.json({ success: true, blog: cached, cached: true });
     }
 
-    let query = {};
-
-    // Build query based on ID type
-    if (validation.type === "objectId") {
-      query._id = validation.value;
-    } else if (validation.type === "numeric") {
-      query.id = validation.value;
-    }
-
-    console.log(`Searching for blog with query:`, query);
-
-    // Find product and increment view count
+    // 2) fetch from DB and populate cache
     const blog = await BlogPost.findOneAndUpdate(
-      query,
-      { $inc: { views: 1 } },
+      { _id: id },
+      { $inc: { views: 1 } }, // Keep a DB fallback increment for first load
       { new: true },
-    );
+    ).lean();
 
-    if (!blog) {
-      return res.status(404).json({
-        success: false,
-        message: "Blog not found",
-        searchedId: blogIdParam,
-        queryUsed: query,
-      });
-    }
+    if (!blog)
+      return res
+        .status(404)
+        .json({ success: false, message: "Blog not found" });
 
-    // Convert to JSON to include virtuals
-    const blogData = blog.toJSON();
+    // store shallow copy in cache for 10 minutes
+    await setJSON(cacheKey, blog, 600);
 
-    // Ensure SKU is generated if missing
-    // if (!blogData.sku || blogData.sku === '') {
-    //     blogData.sku = `${blog.category.substring(0, 3).toUpperCase()}-${blog.id || blog._id}`;
-    // }
-
-    // Calculate stock status
-    // const stockStatus = {
-    //     current_stock: product.stock_quantity || 0,
-    //     low_stock_threshold: product.low_stock_threshold || 10,
-    //     is_low_stock: (product.stock_quantity || 0) <= (product.low_stock_threshold || 10),
-    //     is_out_of_stock: (product.stock_quantity || 0) === 0
-    // };
-
-    // productData.stock_status = stockStatus;
-    // productData.discount_percentage = 0;
-
-    // Calculate discount percentage
-    // if (product.old_price && product.old_price > product.new_price) {
-    //     productData.discount_percentage = Math.round(((product.old_price - product.new_price) / product.old_price) * 100);
-    // }
-
-    console.log(`Blog found: ${blog.title}. Total views: ${blog.views}`);
-
-    res.json({
-      success: true,
-      blog: blogData,
-    });
-  } catch (error) {
-    console.error("Error fetching blog details:", error);
-    res.status(500).json({
-      success: false,
-      message: "Internal server error",
-      error: error.message,
-    });
+    res.json({ success: true, blog, cached: false });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ success: false, error: err.message });
   }
 };
 
@@ -358,6 +369,8 @@ const writeCommentOnBlog = async (req, res) => {
     });
 
     await blog.save();
+    await delKey(`blog:detail:${blog._id}`);
+    await invalidateAllListCaches();
 
     res.json({
       success: true,
@@ -396,15 +409,26 @@ const updateBlog = async (req, res) => {
 
     const updateData = {};
     const safeHtml = sanitizeHtml(req.body.content, {
-    allowedTags: [
-      'p','h1','h2','h3','strong','em','a','ul','ol','li',
-      'blockquote','code','pre'
-    ],
-    allowedAttributes: {
-      a: ['href', 'target', 'rel']
-    },
-    allowedSchemes: ['http', 'https']
-  });
+      allowedTags: [
+        "p",
+        "h1",
+        "h2",
+        "h3",
+        "strong",
+        "em",
+        "a",
+        "ul",
+        "ol",
+        "li",
+        "blockquote",
+        "code",
+        "pre",
+      ],
+      allowedAttributes: {
+        a: ["href", "target", "rel"],
+      },
+      allowedSchemes: ["http", "https"],
+    });
 
     // Build update object with validation
     if (req.body.title !== undefined) updateData.title = req.body.title;
@@ -419,7 +443,6 @@ const updateBlog = async (req, res) => {
     if (req.body.trending !== undefined)
       updateData.trending = req.body.trending;
     if (req.body.image !== undefined) updateData.image = req.body.image;
-
 
     if (updateData.title) {
       const slug = req.body.title
@@ -452,6 +475,8 @@ const updateBlog = async (req, res) => {
     }
 
     console.log("Blog updated:", updatedBlog.title);
+     await delKey(`blog:detail:${updatedBlog._id}`);
+    await invalidateAllListCaches();
     res.json({
       success: true,
       message: "Blog updated successfully",
@@ -494,6 +519,8 @@ const toggleBlogLike = async (req, res) => {
     }
 
     await blog.save();
+    await delKey(`blog:detail:${blog._id}`);
+    await invalidateAllListCaches();
 
     res.json({
       success: true,

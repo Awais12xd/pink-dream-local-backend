@@ -40,6 +40,7 @@ const {
   seedDefaultRoles,
   createDefaultSuperAdmin,
 } = require("./routes/rbacRoutes");
+const { connectRedis } = require("./utils/redisClient");
 
 // 1. FIRST: Configure trust proxy (IMPORTANT for correct IP detection)
 app.set("trust proxy", 1); // Trust first proxy (essential for rate limiting)
@@ -51,7 +52,7 @@ const corsOptions = {
     const allowedOrigins = [
       "http://localhost:3000",
       "http://localhost:3001",
-      
+
       "https://pink-dream-local-frontend.vercel.app",
       "https://faysalpk26-pinkdreams-frontend.vercel.app",
       "https://pinkdreams-backend.onrender.com",
@@ -100,6 +101,9 @@ mongoose
   })
   .then(() => console.log("✅ MongoDB Connected"))
   .catch((err) => console.error("❌ MongoDB connection error:", err));
+ 
+  // connect redis
+  connectRedis().catch(console.error);
 
 // ============================================
 // SQLite Database for RBAC System
